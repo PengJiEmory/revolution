@@ -110,7 +110,8 @@ int main (int argc, char *argv[]) {
                             thread_rec[tRecID]->idle = 0;
                             //pthread_init(&thread_rec[tRecID]->tid, NULL,
                             //pthread_create(&thread_rec[tRecID]->tid, &tattr, compute, &tRecID);
-                            pthread_create(&thread_rec[tRecID]->tid, NULL, compute, &tRecID);
+                            //pthread_create(&thread_rec[tRecID]->tid, NULL, compute, &tRecID);
+                            pthread_create(&thread_rec[tRecID]->tid, NULL, compute, &thread_rec[tRecID]->id);
                             //pthread_join(thread_rec[tRecID]->tid, NULL);
                             printf("thread %d craeted\n", tRecID);
                         }
@@ -237,8 +238,9 @@ int isperfect(int num) {
 }
 
 void *compute(int *num) {
-    int tRecIDcompute = *num;
+    int tRecIDcompute = *num - 1;
     printf("Thread %d is computing\n", tRecIDcompute);
+    printf("Thread %d has a pointer %p\n", num);
     int startnumber = thread_rec[tRecIDcompute]->start;
     int blockID = startnumber / blocksize;
     int checkedblock = 0;
