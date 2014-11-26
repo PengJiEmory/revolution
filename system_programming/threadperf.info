@@ -1,0 +1,61 @@
+Assignment 4 CS551
+Computation with Posix Threads
+Due Monday November 24, 2014 at 11PM
+
+This assignment involves searching perfect numbers using threads, Write a single
+program "threadperf.c" which will do the search with multiple Posix threads in a
+single Unix process. The program takes two command line argument, MAX, which is 
+the largest number to test, and BLOCK a blocking facotr. The actual perfect 
+number test, should be done as in the signals.c demo.
+
+    void perfect(start) 
+      int start;
+    {
+      int i,sum;
+    
+      n=start;
+    
+    while (1) {
+      sum=1;
+      for (i=2;i<n;i++)
+        if (!(n%i)) sum+=i;
+        
+      if (sum==n) printf("%d is perfect\n",n);
+      n++;
+      }
+    }
+
+Threadperf reads the following commands from standard input:
+
+start K
+Starts a new computation thread to search starting in the block containing the
+integer K, and print out the thread number N. (N starts at 1).
+
+idle N
+Make the Nth thread started idle when it completes the current number being tested.
+
+restart N
+Makes the Nth thread started resume.
+
+wait S
+Wait S seconds before processing additional commands.
+
+report
+Print out a report of how many numbers each thread testd and skipped, which 
+block each thread is working on, and if it is currently idle. Also report which
+perfect numbers were found by which threads.
+
+quit
+Print out the perfect number found, the total number tested, as well as the 
+total cpu time and elapsed time for the process, and then terminate.
+
+Use a bitmap to indicate what has been tested, where 1 bit represents each 
+BLOCK of integers. Pthread mutex's are relatively cheap so you can use a mutext
+to insure that a thread can correctly identify the next block to process without
+interference, and that shared strucutres are adequately protected.
+
+A thread that hits the end of the MAX range should wrap around and continue its
+search. If all numbers have been tested the process should terminate with the 
+same info as the "quit" command.
+
+Use PTHREAD_SCOPE_SYSTEM to take advantage of multiple processors.
