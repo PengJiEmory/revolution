@@ -240,7 +240,7 @@ int isperfect(int num) {
 void *compute(int *num) {
     int tRecIDcompute = *num - 1;
     printf("Thread %d is computing\n", tRecIDcompute);
-    printf("Thread %d has a pointer %p\n", num);
+    printf("Thread %d has a pointer %p\n", tRecIDcompute, num);
     int startnumber = thread_rec[tRecIDcompute]->start;
     int blockID = startnumber / blocksize;
     int checkedblock = 0;
