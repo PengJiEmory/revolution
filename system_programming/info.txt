@@ -2,21 +2,54 @@ Assignment 5 CS551
 Communication with sockets on a network
 Due Friday December 12, 2014 at 11PM
 
-For this assignment you will once again write 3 related programs to "manage", "report", and "compute". You should hand in files manage.c, report.c and compute.c to implement the functions described below. Place the programs in a directory named "tcp".
+For this assignment you will once again write 3 related programs to "manage", 
+"report", and "compute". You should hand in files manage.c, report.c and 
+compute.c to implement the functions described below. Place the programs in a 
+directory named "tcp".
 
-Manage's job is to coordinate the computations done by the "compute" processes. It is the first process started, and takes just one argument, the tcp port number to be used for communication. Manage starts up, does any initialization needed and waits for connections.
+Manage's job is to coordinate the computations done by the "compute" processes. 
+It is the first process started, and takes just one argument, the tcp port 
+number to be used for communication. Manage starts up, does any initialization 
+needed and waits for connections.
 
-Compute's job is to compute perfect numbers. One or more computes can be started on any machine on the network. It takes three command line arguments, a hostname for manage, a port number for manage, and astarting point for its computations. Compute connects to the manage process, and sends it a startup request, including the requested starting point. Manage replies with an actual range to be tested, chosen with a starting point as close to the requested starting point as possible but disjoint from all numbers already tested. "Compute" sends manage any perfect number it finds, as it finds it. When it finishes it's range, it requests another one.
+Compute's job is to compute perfect numbers. One or more computes can be 
+started on any machine on the network. It takes three command line arguments, 
+a hostname for manage, a port number for manage, and astarting point for its 
+computations. Compute connects to the manage process, and sends it a startup 
+request, including the requested starting point. Manage replies with an actual 
+range to be tested, chosen with a starting point as close to the requested 
+starting point as possible but disjoint from all numbers already tested. 
+"Compute" sends manage any perfect number it finds, as it finds it. When it 
+finishes it's range, it requests another one.
 
-Report's job is to query "manage" and print out the perfect numbers found (including which host found each), and for each compute running the hostname it is running on, how many numbers it has tested, and what the current range it is working on is. Report's first two arguments are the same as "compute" and identify the node and port of "manage". If invoked with the "-k" switch as a third argument, it also is used to inform the Mange process to shut down computation.
+Report's job is to query "manage" and print out the perfect numbers found 
+(including which host found each), and for each compute running the hostname 
+it is running on, how many numbers it has tested, and what the current range 
+it is working on is. Report's first two arguments are the same as "compute" 
+and identify the node and port of "manage". If invoked with the "-k" switch 
+as a third argument, it also is used to inform the Mange process to shut down 
+computation.
 
-All "computes should terminate cleanly on INTR, QUIT, and HANGUP signals. This means they stop computing and send "manage" a message saying they are terminating, including the last number tested.
+All "computes should terminate cleanly on INTR, QUIT, and HANGUP signals. This 
+means they stop computing and send "manage" a message saying they are 
+terminating, including the last number tested.
 
-If "manage" receives one of these signals, or the -k message from report, it sends each compute a request to terminate immediately and return the last number tested. In the case of report -k, manage does not send report a reply until it has gotten all the final results.
+If "manage" receives one of these signals, or the -k message from report, it 
+sends each compute a request to terminate immediately and return the last 
+number tested. In the case of report -k, manage does not send report a reply 
+until it has gotten all the final results.
+
 
 Notes:
-(1) Mange should time each compute's last range and adjust the length of the new range for a target of 15 seconds.
-(2) You must implement a scheme that allows manage to terminate a compute and query it's status at any time. This up to date satus (including which host found each) is what manage should send to "report".
+(1) Mange should time each compute's last range and adjust the length of the 
+new range for a target of 15 seconds.
+
+(2) You must implement a scheme that allows manage to terminate a compute and 
+query it's status at any time. This up to date satus (including which host 
+found each) is what manage should send to "report".
+
 (3) Report must also identify which host has checked each range tested.
 
-You must assume the clients are hetrogeneous and all communication must be done using XDR to encode transactions. If you wish you may use ONC rpc, but that is not required.
+You must assume the clients are hetrogeneous and all communication must be 
+done using XDR to encode transactions. If you wish you may use ONC rpc, but 
+that is not required.
