@@ -12,17 +12,17 @@
 #include <ctype.h>
 #include <rpc/rpc.h>
 
-main (argc,argv) 
+main (argc,argv)
 	int argc;
 	char *argv[];
 {
-	
+
 	struct sockaddr_in sin; /* socket address for destination */
 	int s;
 	int len;
 	long address;
 	int i;
-	XDR handle;
+	XDR handle_w, handle_r;
 	char done;
 	FILE *stream;
 	int ret;
@@ -33,7 +33,7 @@ main (argc,argv)
 	sin.sin_family= AF_INET;
 	sin.sin_port = htons(atoi(argv[2]));
 
-	while(1) { /*loop waiting for Mary if Necessary */		
+	while(1) { /*loop waiting for Mary if Necessary */
 			/* create the socket */
 	if ((s = socket(AF_INET,SOCK_STREAM,0)) < 0) {
 		perror("Socket");
@@ -52,24 +52,31 @@ main (argc,argv)
 		/* Now send Mary the Numbers */
 
 			/* attach socket to a stream */
-	if ((stream=fdopen(s,"w")) == (FILE *) -1 ) {
-		perror("fdopen:");
-		exit(1);
-		}
+ // while (1) {
+		if ((stream=fdopen(s,"r+")) == (FILE *) -1 ) {
+			perror("fdopen:");
+			exit(1);
+			}
 
-	xdrstdio_create(&handle,stream,XDR_ENCODE); /* get XDR handle */
-	done=0;
+		xdrstdio_create(&handle_w,stream,XDR_ENCODE); /* get XDR handle */
+		xdrstdio_create(&handle_r,stream,XDR_DECODE); /* get XDR handle */
+		done=0;
 
-	for (i=1; i<= atoi(argv[3]); i++ ) {
-		xdr_char(&handle, &done);
-		xdr_int(&handle,&i);
-		}
+		for (i=1; i<= atoi(argv[3]); i++ ) {
+			xdr_char(&handle_w, &done);
+			xdr_int(&handle_w,&i);
+			}
 
-	done=1;
-	xdr_char(&handle, &done);
-	xdr_int(&handle,&i);
-	fflush(stream);
+    int try = -1;
+    xdr_int(&handle_r,&try);
+    printf("try is %d\n", try);
+		done=1;
 
-		
+		xdr_char(&handle_w, &done);
+		xdr_int(&handle_w,&i);
+		//fflush(stream);
+//  }
+
+
 
 }

@@ -52,18 +52,22 @@ main (argc,argv)
 			perror ("accept");
 			exit(3);
 			}
+    printf("current connect is %d\n", (int) fd);
 
 
 		if ((child1 = fork()) == 0) { /* CHILD1 now does the work */
 			sum=0;
 
 				/*attach socket to a stream */
-			if ((stream1=fdopen(fd,"r")) == (FILE *) -1 ) {
+			if ((stream1=fdopen(fd,"r+")) == (FILE *) -1 ) {
 		  	 	perror("fdopen:");
 		   		exit(1);
 	    }
 
         	xdrstdio_create(&handle1,stream1,XDR_DECODE); /* Create XDR handle*/
+        	xdrstdio_create(&handle2,stream1,XDR_ENCODE); /* Create XDR handle*/
+          int trytry = 1001;
+          xdr_int(&handle2, &trytry);
 			done=0;
 			while (!done) {
 			   xdr_char(&handle1, &done);
@@ -75,28 +79,6 @@ main (argc,argv)
 			hostentp=gethostbyaddr((char *)&sin.sin_addr.s_addr,
 						sizeof(sin.sin_addr.s_addr),AF_INET);
 			printf("This John (%s) adds up to %d \n",hostentp->h_name,sum);
-			exit(0);
-			}
-		else if ((child2 = fork()) == 0) { /* CHILD2 now does the work */
-			sum=0;
-
-				/*attach socket to a stream */
-			if ((stream2=fdopen(fd,"r")) == (FILE *) -1 ) {
-		  	 	perror("fdopen:");
-		   		exit(1);
-	    }
-
-        	xdrstdio_create(&handle2,stream2,XDR_DECODE); /* Create XDR handle*/
-			done=0;
-			while (!done) {
-			   xdr_char(&handle2, &done);
-			   xdr_int(&handle2,&i);
-			   if (!done) sum -= i;
-			   }
-
-			hostentp=gethostbyaddr((char *)&sin.sin_addr.s_addr,
-						sizeof(sin.sin_addr.s_addr),AF_INET);
-			printf("This John (%s) subtract down to %d \n",hostentp->h_name,sum);
 			exit(0);
 			}
 	}
