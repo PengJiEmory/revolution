@@ -1,7 +1,7 @@
 // THIS CODE IS MY OWN WORK, IT WAS WRITTEN WITHOUT CONSULTING
 // A TUTOR OR CODE WRITTEN BY OTHER STUDENTS - PENG JI
 
-/* CS551 Assignment 3 */
+/* CS551 Assignment 5 */
 /* compute.c          */
 /* Peng Ji            */
 
@@ -10,22 +10,11 @@
 long testing;  //last tested
 XDR handle_w;
 int myid = 0;  //id registered in manage
-/*
-void terminate(int childid) {
-    char end = 'e';
-    kill(childid, SIGTERM);
-    xdr_char(&handle_w, &end);
-    xdr_int(&handle_w, &myid);
-    xdr_long(&handle_w, &testing);
-    exit(0);
-}
-*/
+int terminating = 0;
+
 void terminate() {
-    char end = 'e';
-    xdr_char(&handle_w, &end);
-    xdr_int(&handle_w, &myid);
-    xdr_long(&handle_w, &testing);
-    exit(0);
+    printf("terminate signal received. Terminating...\n");
+    terminating = 1;
 }
 
 int main (int argc, char *argv[]) {
@@ -71,6 +60,7 @@ int main (int argc, char *argv[]) {
     sin.sin_port = htons(atoi(argv[2]));
 
 
+    printf("connecting to server...\n");
     while(1) {
         // creat the socket
         if ((skfd =socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -84,6 +74,7 @@ int main (int argc, char *argv[]) {
         }
         break;
     }
+    printf("connected\n");
 
     if ((stream = fdopen(skfd,  "r+")) == (FILE *) -1) {
         perror("fdopen");
@@ -105,6 +96,7 @@ int main (int argc, char *argv[]) {
 
     while(1) {
         // send the request
+        printf("updating\n");
         xdr_char(&handle_w, &sndinit);
         xdr_int(&handle_w, &myid);
         xdr_long(&handle_w, &start_asked);
@@ -118,63 +110,33 @@ int main (int argc, char *argv[]) {
             xdr_int(&handle_r, &myid);
             xdr_long(&handle_r, &end);
         }
+        sleep(1);
+        printf("start as %ld, and end will be %ld\n", start, end);
         time_start = time(0);
-        for (i = start; i <= end; i++) {
+        for (i = start; terminating == 0 && i <= end; i++) {
             if (isperf(i)) {
                 // send perfect number
                 xdr_char(&handle_w, &perf_found);
                 xdr_int(&handle_w, &myid);
                 xdr_long(&handle_w, &i);
+                printf("%d\n", i);
                 fflush(stream);
             }
             testing = i;
         }
+        if (terminating) {
+            char end = 'e';
+            xdr_char(&handle_w, &end);
+            xdr_int(&handle_w, &myid);
+            xdr_long(&handle_w, &testing);
+            fflush(stream);
+            printf("Data has been updated in server.\n");
+            break;
+        }
         time_end = time(0);
         timecost = (double) (time_end - time_start);
     }
-/*
-    pid = fork();
-    // child send data to manage
-    if (pid == 0) {
-        while(1) {
-            process_begin = 0;
-            // send the request
-            xdr_char(&handle_w, &sndinit);
-            xdr_int(&handle_w, &myid);
-            xdr_long(&handle_w, &start_asked);
-            xdr_double(&handle_w, &timecost);
-            // wait for response from manage
-            while(!process_begin)
-            time_start = time(0);
-            for (i = start; i <= end; i++) {
-                if (isperf(i)) {
-                    // send perfect number
-                    xdr_char(&handle_w, &perf_found);
-                    xdr_int(&handle_w, &myid);
-                    xdr_long(&handle_w, &i);
-                }
-                testing = i;
-            }
-            time_end = time(0);
-            timecost = (double) (time_end - time_start);
-        }
-        exit(0);
-    }
-    // parent receive data from manage
-    else {
-        while(1) {
-            xdr_char(&handle_r, &rcvinit);
-            if (rcvinit == 't') terminate(pid);
-            else if (rcvinit == 'n') {
-                xdr_long(&handle_r, &start);
-                xdr_int(&handle_r, &myid);
-                xdr_long(&handle_r, &end);
-                // tell child to start computing
-                process_begin = 1;
-            }
-        }
-    }
-*/
+    printf("bye\n");
 }
 
 int isperf(long num) {

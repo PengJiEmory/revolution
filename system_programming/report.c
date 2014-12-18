@@ -42,6 +42,7 @@ int main(int argc, char *argv[]) {
         }
         break;
     }
+    //printf("connected to socket %d\n", skfd);
 
     // send the request
     if ((stream = fdopen(skfd, "r+")) == (FILE *) -1) {
@@ -60,6 +61,7 @@ int main(int argc, char *argv[]) {
         }
     }
     xdr_char(&handle_w, &sndinit);
+    fflush(stream);
 
     // receive messages
     printf("receiving from manage...\n");
@@ -70,12 +72,14 @@ int main(int argc, char *argv[]) {
 
     else {
         printf("receiving perfect number records\n");
-        perf_end = 0;
-        while (!perf_end) {
+        printf("--------------------------------\n");
+        perf_end = 'P';
+        while (perf_end == 'P') {
             xdr_char(&handle_r, &perf_end);
-            if (!perf_end) {
+            if (perf_end == 'P') {
                 xdr_long(&handle_r, &perf);
                 xdr_string(&handle_r, &perf_host, SIZELIMIT);
+                if (perf_host == NULL) break;
                 printf("perfect number %ld\t was found by %s\n", perf, perf_host);
             }
         }
@@ -88,20 +92,24 @@ int main(int argc, char *argv[]) {
     }
 
     printf("receiving compute process records\n");
-    msg_end = 0;
-    while (!msg_end) {
+    printf("---------------------------------\n");
+    msg_end = 'M';
+    while (msg_end == 'M') {
         xdr_char(&handle_r, &msg_end);
-        if (!msg_end) {
+        if (msg_end == 'M') {
             xdr_int(&handle_r, &compute_id);
             xdr_long(&handle_r, &compute_tested);
             xdr_string(&handle_r, &compute_host, SIZELIMIT);
             xdr_long(&handle_r, &compute_start);
             xdr_char(&handle_r, &compute_stat);
             xdr_long(&handle_r, &compute_end);
-            printf("compute %d on %s has tested %ld numbers.\nIts latest range is %ld - %ld with termination status as %c\n", compute_id, compute_host, compute_tested, compute_start, compute_end, compute_stat);
+            if (perf_host == NULL) break;
+            printf("compute %d on %s has tested %ld numbers.\nIts latest range is %ld - %ld with termination status as %c\n", compute_id + 1, compute_host, compute_tested, compute_start, compute_end, compute_stat);
+            printf("---------------------------------\n");
         }
     }
-    fflush(stream);
+    //fflush(stream);
+    //fclose(stream);
     //close(skfd);
     return 0;
 }
