@@ -5,6 +5,14 @@
 /* manage.c           */
 /* Peng Ji            */
 
+/*
+ * To do list:
+ * use threads or fork for the compute
+ * report is crazy if manage quit unexpectively
+ * manage has a probelm to generatet range
+ * manage, compute and report can not work together
+ * free after malloc
+ */
 #include "perfect.h"
 
 int terminating = 0;
@@ -30,7 +38,9 @@ int main (int argc, char *argv[]) {
     int waiting_terminate = 0;  // waiting report
     int disconnect = 0;
     long newperf;
-    long start_req, start, end, last, newrange;
+    long start_req, last, newrange, oldrange;
+    long start = 1;
+    long end = 1;
     double timecost;
     char buffer[32]; //find recv
     char sndinit, rcvinit, perf_end, msg_end;
@@ -40,7 +50,7 @@ int main (int argc, char *argv[]) {
     struct sockaddr_in sin; // structure for socket address
     struct sockaddr_in tempsin;
     struct hostent * hostentp;
-    struct pollfd *ufds = (struct pollfd *) calloc(sizeof(struct pollfd), CLTCOUNT);
+    struct pollfd *ufds = (struct pollfd *) calloc(CLTCOUNT, sizeof(struct pollfd));
 
     struct perfent {
         long value;
@@ -51,7 +61,8 @@ int main (int argc, char *argv[]) {
     struct compent {
         int id; // assocaite with hostname
         int socketfd;
-        char hostname[256];
+       // char hostname[256];
+        char * hostname;
         long tested;
         long start;
         long end;
@@ -68,8 +79,6 @@ int main (int argc, char *argv[]) {
 
     //struct perfent * perf_head = (struct perfent *) malloc (sizeof (struct perfent));  //perfect number record
     struct perfent * perf_head = NULL;
-    //if (perf_head == NULL) printf("I am right\n");
-    //else printf("I am wrong\n");
     struct perfent * perf_curr;
     struct perfent * perf_temp;
     struct compent * complist[CLTCOUNT];  //compute record
@@ -105,12 +114,16 @@ int main (int argc, char *argv[]) {
     }
 
     // add the socket fd to ufds
-    nfds = 1;
-    // ufds[0] = (struct pollfd) malloc(sizeof(struct pollfd));
+    nfds = 1;  //socket fd need to listen
     ufds[0].fd = skfd;
     ufds[0].events = POLLIN | POLLHUP | POLLRDNORM;
-    //ufds[0].events = POLLOUT;
-
+/*
+    // setsockopt to avoid unavailable socket
+    int yes = 1;
+    if (setsockopt(skfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+        perror("setsockopt");
+    }
+*/
     // do the actual bind
     if (bind (skfd, (struct sockaddr *) &sin, sizeof(sin)) < 0) {
         perror("bind");
@@ -122,10 +135,11 @@ int main (int argc, char *argv[]) {
 
     // Now loop accepting connections
     while (1) {
-        // check if comp_active is 0
         if (terminating) {
+            // broadcast the ending signal
             if (terminating == 1) {
                 for (i = 0; i < comp_total; i++) {
+                    if (complist[i]->stat == 'Y') continue;
                     FILE * stream_rt;
                     if ((stream_rt = fdopen(complist[i]->socketfd, "r+")) == (FILE *) -1) {
                         perror("fdopen_caseT");
@@ -139,8 +153,9 @@ int main (int argc, char *argv[]) {
                 }
                 terminating = 2;
             }
+            // if all computes have been terminated, return to report and die
             if (comp_active == 0) {
-            // check if there is waiting report
+                // if there is waiting report, report and die; else die;
                 if (waiting_terminate > 0) {
                     FILE * stream_t;
                     XDR handle_wt;
@@ -158,12 +173,13 @@ int main (int argc, char *argv[]) {
                     else {
                         sndinit = 'p';
                         xdr_char(&handle_wt, &sndinit);
-                        perf_end = 0;
+                        perf_end = 'P';
                         perf_curr = perf_head;
                         while (perf_curr != NULL) {
                             xdr_char(&handle_wt, &perf_end);
                             xdr_long(&handle_wt, &(perf_curr->value));
-                            xdr_string(&handle_wt, &(complist[perf_curr->comid - 1]->hostname), SIZELIMIT);
+                            xdr_string(&handle_wt, &(complist[perf_curr->comid]->hostname), SIZELIMIT);
+                            fflush(stream_t);
                             perf_curr = perf_curr->next;
                         }
                         perf_end = 1;
@@ -180,7 +196,7 @@ int main (int argc, char *argv[]) {
                     }
                     sndinit = 'c';
                     xdr_char(&handle_wt, &sndinit);
-                    msg_end = 0;
+                    msg_end = 'M';
                     for (i = 0; i < comp_total; i++) {
                         xdr_char(&handle_wt, &msg_end);
                         xdr_int(&handle_wt, &(complist[i]->id));
@@ -199,16 +215,18 @@ int main (int argc, char *argv[]) {
             }
         }
         int newclients = 0;
+        // use poll to check for available fd
         rv = poll(ufds, nfds, 0);
         if (rv == -1) {
             perror("poll");
             exit(0);
         }
-        if (rv == disconnect) continue;
+        if (rv == 0) continue;
+        //if (rv == disconnect) continue;
+        disconnect = 0;
         for (i = 0; i < nfds; i++) {
-            disconnect = 0;
             //if (terminating) break;
-            if (ufds[i].revents & POLLIN) {
+            if ((ufds[i].revents & POLLIN) && !(ufds[i].revents & POLLHUP)) {
                 if(ufds[i].fd == skfd) {
                     // do not accept connections after terminating signal
                     if (terminating == 0) {
@@ -217,10 +235,10 @@ int main (int argc, char *argv[]) {
                             perror ("accept");
                             exit(3);
                         }
-                        newclients++;
                         //ufds[nfds + newclients - 1] = (struct pollfd *) malloc(sizeof(struct pollfd));
-                        ufds[nfds + newclients - 1].fd = newfd;
-                        ufds[nfds + newclients - 1].events = POLLIN;
+                        ufds[nfds + newclients].fd = newfd;
+                        ufds[nfds + newclients].events = POLLIN | POLLHUP | POLLRDNORM;
+                        newclients++;
                     }
                 }
                 // if recv returns zero, that means the connection has been closed
@@ -238,7 +256,7 @@ int main (int argc, char *argv[]) {
                     xdrstdio_create(&handle_w, stream, XDR_ENCODE);
                     xdrstdio_create(&handle_r, stream, XDR_DECODE);
                     xdr_char(&handle_r, &rcvinit);
-                    printf("checking the rcvinit: %c\n", rcvinit);
+                    //printf("checking the rcvinit: %c\n", rcvinit);
                     switch(rcvinit) {
                         case 'r':
                             // no report when terminating
@@ -253,12 +271,16 @@ int main (int argc, char *argv[]) {
                             else {
                                 sndinit = 'p';
                                 xdr_char(&handle_w, &sndinit);
-                                perf_end = 0;
+                                perf_end = 'P';
                                 perf_curr = perf_head;
                                 while (perf_curr != NULL) {
                                     xdr_char(&handle_w, &perf_end);
                                     xdr_long(&handle_w, &(perf_curr->value));
-                                    xdr_string(&handle_w, &(complist[perf_curr->comid - 1]->hostname), SIZELIMIT);
+                                    // temp
+                                    //char * temp = "testing perf";
+                                    //xdr_string(&handle_w, &temp, SIZELIMIT);
+                                    xdr_string(&handle_w, &(complist[perf_curr->comid]->hostname), SIZELIMIT);
+                                    fflush(stream);
                                     perf_curr = perf_curr->next;
                                 }
                                 perf_end = 1;
@@ -275,7 +297,7 @@ int main (int argc, char *argv[]) {
                             }
                             sndinit = 'c';
                             xdr_char(&handle_w, &sndinit);
-                            msg_end = 0;
+                            msg_end = 'M';
                             for (i = 0; i < comp_total; i++) {
                                 xdr_char(&handle_w, &msg_end);
                                 xdr_int(&handle_w, &(complist[i]->id));
@@ -284,51 +306,34 @@ int main (int argc, char *argv[]) {
                                 xdr_long(&handle_w, &(complist[i]->start));
                                 xdr_char(&handle_w, &(complist[i]->stat));
                                 xdr_long(&handle_w, &(complist[i]->end));
+                                fflush(stream);
                             }
                             msg_end = 1;
                             xdr_char(&handle_w, &msg_end);
                             fflush(stream);
                             break;
                         case 't':
-                            // no report when terminating
-                            if (terminating) break;
-                            // enter terminating process
-                            terminating = 1;
-                            printf("report -k is received\n");
-                            // set its socket fd as waiting_terminate
-                            waiting_terminate = newfd;
-                            // send terminate signal out
-                            /*
-                            for (i = 0; i < comp_total; i++) {
-                                FILE * stream_rt;
-                                if ((stream_rt = fdopen(complist[i]->socketfd, "r+")) == (FILE *) -1) {
-                                    perror("fdopen_caseT");
-                                    exit(1);
-                                }
-                                XDR handle_wrt;
-                                xdrstdio_create(&handle_wrt, stream_rt, XDR_ENCODE);
-                                xdr_char(&handle_wrt, &rcvinit);
-                                //fflush(stream_rt);
-                            }*/
+                            if (terminating) break;  // no report when terminating
+                            terminate();
+                            waiting_terminate = newfd;  // set its socket fd as waiting_terminate
                             break;
                         case 'c':
-                            // readin compid, start_req, timecost
                             xdr_int(&handle_r, &compid);
                             xdr_long(&handle_r, &start_req);
                             xdr_double(&handle_r, &timecost);
-                            // no range assign when terminating
-                            if (terminating) break;
-                            // initial new compute
+                            if (terminating) break;  // no range assign when terminating
+                            // initialize new compute
                             if (compid == 0) {
-                                printf("new client coming\n");
+                                printf("registering new client...\n");
                                 compid = comp_total;
                                 complist[compid] = (struct compent *) malloc (sizeof (struct compent));
-                                complist[compid]->id = compid + 1;
+                                complist[compid]->id = compid;
                                 complist[compid]->socketfd = newfd;
                                 len = sizeof(tempsin);
                                 getpeername(newfd, (struct sockaddr *) &tempsin, &len);
                                 hostentp = gethostbyaddr((char *)&tempsin.sin_addr.s_addr, sizeof(tempsin.sin_addr.s_addr), AF_INET);
-                                strcpy(complist[compid]->hostname, hostentp->h_name);
+                                //strcpy(complist[compid]->hostname, hostentp->h_name);
+                                complist[compid]->hostname = hostentp->h_name;
                                 complist[compid]->tested=0;
                                 complist[compid]->start=0;
                                 complist[compid]->end=0;
@@ -340,91 +345,89 @@ int main (int argc, char *argv[]) {
                             }
                             // calculate new range
                             else {
-                                compid--;
-                                newrange = (complist[compid]->end - complist[compid]->start + 1) * 15 / timecost;
+                                complist[compid]->last = complist[compid]->end;
+                                oldrange = complist[compid]->end - complist[compid]->start + 1;
+                                complist[compid]->tested += oldrange;
+                                newrange = oldrange * 15 / timecost;
                             }
                             // find start and end
                             range_curr = range_head;
                             while (range_curr != NULL) {
                                 // after current range's end
                                 if (start_req > range_curr->end) {
-                                   // start_req located after the end range
-                                   if (range_curr->next == NULL) {
-                                       if (start_req == range_curr->end + 1) {
-                                           range_curr->end = range_curr->end + newrange;
-                                       }
-                                       else {
-                                           range_temp = (struct range *) malloc(sizeof (struct range));
-                                           range_temp->start = start_req;
-                                           range_temp->end = start_req + newrange - 1;
-                                           range_temp->next = NULL;
-                                           range_temp->prev = range_curr;
-                                           range_curr->next = range_temp;
-                                           range_curr = range_temp;
-                                       }
-                                       complist[compid]->start = start_req;
-                                       complist[compid]->end = range_curr->end;
-                                       break;
-                                   }
-                                   // calculate the distances between start_req and curr->end as well as next->end
-                                   // start_req located between two existing ranges
-                                   else if (start_req < range_curr->next->start) {
-                                       range_temp = (struct range *) malloc(sizeof (struct range));
-                                       range_temp->start = start_req;
-                                       range_temp->end = start_req + newrange - 1;
-                                       range_temp->next = NULL;
-                                       range_temp->prev = NULL;
-                                       if (start_req + newrange >= range_curr->next->start) {
-                                           range_temp->end = range_curr->next->start - 1;
-                                       }
-                                       //else range_temp->end = start_req + newrange - 1;
-                                       // new range
-                                       complist[compid]->start = range_temp->start;
-                                       complist[compid]->end = range_temp->end;
-                                       // re-organize the range list
-                                       if (range_temp->start - 1> range_curr->end && range_temp->end + 1 < range_curr->next->start) {
-                                           range_temp->prev = range_curr;
-                                           range_temp->next = range_curr->next;
-                                           range_curr->next->prev = range_temp;
-                                           range_curr->next = range_temp;
-                                       }
-                                       else if (range_temp->start - 1 == range_curr->end && range_temp->end + 1 == range_curr->next->start) {
-                                           range_curr->end = range_curr->next->end;
-                                           range_curr->next = range_curr->next->next;
-                                       }
-                                       else if (range_temp->start - 1 == range_curr->end) {
-                                           range_curr->end = range_temp->end;
-                                       }
-                                       else range_curr->next->start = range_temp->start;
-                                       break;
-                                   }
-                                   else range_curr = range_curr->next;  // go to the else block below in next cycle
-                                }
-                                // before current range's end
-                                else {
-                                    // start_req located before the head range
-                                    if (range_curr->prev == NULL) {
-                                        if (start_req + newrange >= range_curr->start) {
-                                            complist[compid]->end = range_curr->start - 1;
-                                            range_curr->start = start_req;
+                                    // start_req is larger than the largest tested
+                                    if (range_curr->next == NULL) {
+                                        if (start_req == range_curr->end + 1) {
+                                            range_curr->end = range_curr->end + newrange;
                                         }
                                         else {
                                             range_temp = (struct range *) malloc(sizeof (struct range));
                                             range_temp->start = start_req;
                                             range_temp->end = start_req + newrange - 1;
-                                            range_temp->next = range_curr;
-                                            range_temp->prev = NULL;
-                                            range_curr->prev = range_temp;
-                                            range_head = range_temp;
-                                            complist[compid]->end = range_temp->end;
+                                            range_temp->next = NULL;
+                                            range_temp->prev = range_curr;
+                                            range_curr->next = range_temp;
+                                            range_curr = range_temp;
                                         }
-                                        // new range is done
                                         complist[compid]->start = start_req;
+                                        complist[compid]->end = range_curr->end;
                                         break;
                                     }
+                                    // start_req located between current end and next start
+                                    else if (start_req < range_curr->next->start) {
+                                        range_temp = (struct range *) malloc(sizeof (struct range));
+                                        range_temp->start = start_req;
+                                        range_temp->end = start_req + newrange - 1;
+                                        range_temp->next = NULL;
+                                        range_temp->prev = NULL;
+                                        if (start_req + newrange > range_curr->next->start) {
+                                            range_temp->end = range_curr->next->start - 1;
+                                        }
+                                        //else range_temp->end = start_req + newrange - 1;
+                                        // new range
+                                        complist[compid]->start = range_temp->start;
+                                        complist[compid]->end = range_temp->end;
+                                        // re-organize the range list
+                                        if ((range_temp->start - 1 > range_curr->end) && (range_temp->end + 1 < range_curr->next->start)) {
+                                            range_temp->prev = range_curr;
+                                            range_temp->next = range_curr->next;
+                                            range_curr->next->prev = range_temp;
+                                            range_curr->next = range_temp;
+                                        }
+                                        else if ((range_temp->start - 1 == range_curr->end) && (range_temp->end + 1 == range_curr->next->start)) {
+                                            range_curr->end = range_curr->next->end;
+                                            range_curr->next = range_curr->next->next;
+                                        }
+                                        else if (range_temp->start - 1 == range_curr->end) {
+                                            range_curr->end = range_temp->end;
+                                        }
+                                        else range_curr->next->start = range_temp->start;
+                                        break;
+                                    }
+                                    else range_curr = range_curr->next;  // go to the else block below in next cycle
+                                }
+                                // start_req before current range's end
+                                else {
                                     // located in current range
+                                    if (start_req >= range_curr->start) start_req = range_curr->end + 1;
+                                    // start_req located before the head range
+                                    else if (start_req + newrange >= range_curr->start) {
+                                        complist[compid]->start = start_req;
+                                        complist[compid]->end = range_curr->start - 1;
+                                        range_curr->start = start_req;
+                                        break;
+                                    }
                                     else {
-                                        start_req = range_curr->end + 1;  // will be done in next cycle
+                                        range_temp = (struct range *) malloc(sizeof (struct range));
+                                        range_temp->start = start_req;
+                                        range_temp->end = start_req + newrange - 1;
+                                        range_temp->next = range_curr;
+                                        range_temp->prev = NULL;
+                                        range_curr->prev = range_temp;
+                                        range_head = range_temp;
+                                        complist[compid]->start = start_req;
+                                        complist[compid]->end = range_temp->end;
+                                        break;
                                     }
                                 }
                             }
@@ -449,6 +452,7 @@ int main (int argc, char *argv[]) {
                             // readin compid and perfect number
                             xdr_int(&handle_r, &compid);
                             xdr_long(&handle_r, &newperf);
+                            printf("%d\n", newperf);
                             // put perf in to perf linked list
                             perf_temp = (struct perfent *) malloc (sizeof (struct perfent));
                             perf_temp->value = newperf;
@@ -468,7 +472,6 @@ int main (int argc, char *argv[]) {
                             xdr_int(&handle_r, &compid);
                             xdr_long(&handle_r, &last);
                             // update compute list
-                            compid--;
                             complist[compid]->tested += last - complist[compid]->start + 1;
                             complist[compid]->last = last;
                             complist[compid]->stat = 'Y';
