@@ -16,6 +16,37 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 int terminating = 0;
 
+struct perfent {
+    long value;
+    int comid;
+    struct perfent * next;
+};
+
+struct perfent * perf_head = NULL;
+
+struct compent {
+    int id; // assocaite with hostname
+    int socketfd;
+   // char hostname[256];
+    char * hostname;
+    long tested;
+    long start;
+    long end;
+    long last;
+    char stat;  //'Y' or 'N'
+};
+
+struct compent * complist[CLTCOUNT];  //compute record
+
+struct range {
+    long start;
+    long end;
+    struct range * prev;
+    struct range * next;
+};
+
+struct range * range_head = NULL;
+
 void terminate() {
     // send terminate signal out
     terminating = 1;
@@ -52,47 +83,6 @@ int main (int argc, char *argv[]) {
     struct hostent * hostentp;
     struct pollfd *ufds = (struct pollfd *) calloc(CLTCOUNT, sizeof(struct pollfd));
 
-    struct clientinfo {
-        int sock_fd;
-        int comp_id;
-    }
-    struct clientinfo * client;
-
-
-    struct perfent {
-        long value;
-        int comid;
-        struct perfent * next;
-    };
-
-    struct compent {
-        int id; // assocaite with hostname
-        int socketfd;
-       // char hostname[256];
-        char * hostname;
-        long tested;
-        long start;
-        long end;
-        long last;
-        char stat;  //'Y' or 'N'
-    };
-
-    struct range {
-        long start;
-        long end;
-        struct range * prev;
-        struct range * next;
-    };
-
-    //struct perfent * perf_head = (struct perfent *) malloc (sizeof (struct perfent));  //perfect number record
-    struct perfent * perf_head = NULL;
-    struct perfent * perf_curr;
-    struct perfent * perf_temp;
-    struct compent * complist[CLTCOUNT];  //compute record
-    //struct range * range_head = (struct range *) malloc(sizeof(struct range));  //range record
-    struct range * range_head = NULL;
-    struct range * range_curr;
-    struct range * range_temp;
 
     // install signal handler for INTR, QUIT and HANGUP
     sigprocmask(SIG_UNBLOCK, &mask, NULL);
@@ -154,10 +144,93 @@ int main (int argc, char *argv[]) {
             perror("accept");
             exit(1);
         }
+        stream = fdopen(newskfd, "r+");
+        hostentp = gethostbyaddr((char *)&sin.sin_addr.s_addr, sizeof(sin.sin_addr.s_addr), AF_INET);
+        XDR handle_w, handle_r
+        xdrstdio_create(&handle_w, stream, XDR_ENCODE);
+        xdrstdio_create(&handle_r, stream, XDR_DECODE);
+        char rcvinit;
+        xdr_char(&handle_r, &rcvinit);
+        if (rcvinit == 'c') {
+            complist[comp_total]->id = comp_total;
+            complist[comp_total]->sockedfd = newskfd;
+            complist[comp_total]->hostname = hostentp->h_name;
+            complist[comp_total]->tested = 0;
+            complist[comp_total]->start = 0;
+            complist[comp_total]->end = 0;
+            complist[comp_total]->last = 0;
+            complist[comp_total]->stat = 'N';
+            pthread_create(&tid, &tattr, perfect, struct compent complist[comp_total]);
+            comp_total++;
+            comp_active++;
+        }
+        else if (rcvinit == 'r') {
+            report(newskfd);
 
+void report (int num) {
+    int skfd = num;
+    char sndinit;
+    char perf_end;
+    char msg_end;
+    struct perfent * perf_curr;
+    struct range * range_curr;
+    XDR handle_w;
 
-        pthread_create(&tid, &tattr, perfect, &(struct clientinfo client));
+    stream = fdopen(skfd, "w");
+    xdrstdio_create(&handle_w, stream, XDR_ENCODE);
+    // send perf info back
+    if (perf_head == NULL) {
+        printf("We have not found any perfect number yet\n");
+        sndinit = 'o';
+        xdr_char(&handle_w, &sndinit);
     }
+    else {
+        sndinit = 'p';
+        xdr_char(&handle_w, &sndinit);
+        perf_end = 'P';
+        perf_curr = perf_head;
+        while (perf_curr != NULL) {
+            dr_char(&handle_w, &perf_end);
+            xdr_long(&handle_w, &(perf_curr->value));
+            xdr_string(&handle_w, &(complist[perf_curr->comid]->hostname), SIZELIMIT);
+            fflush(stream);
+            perf_curr = perf_curr->next;
+        }
+        perf_end = 1;
+        xdr_char(&handle_w, &perf_end);
+    }
+    fflush(stream);
+    // send comp info back
+    if (comp_total == 0) {
+        printf("We have no compute registered yet\n");
+        sndinit = 'O';
+        xdr_char(&handle_w, &sndinit);
+        fflush(stream);
+    }
+    else {
+        sndinit = 'c';
+        xdr_char(&handle_w, &sndinit);
+        msg_end = 'M';
+        for (i = 0; i < comp_total; i++) {
+            xdr_char(&handle_w, &msg_end);
+            xdr_int(&handle_w, &(complist[i]->id));
+            xdr_long(&handle_w, &(complist[i]->tested));
+            xdr_string(&handle_w, &(complist[i]->hostname), SIZELIMIT);
+            xdr_long(&handle_w, &(complist[i]->start));
+            xdr_char(&handle_w, &(complist[i]->stat));
+            xdr_long(&handle_w, &(complist[i]->end));
+            fflush(stream);
+        }
+        msg_end= 1;
+        xdr_char(&handle_w, &msg_end);
+        fflush(stream);
+    }
+}
+// talk with compute
+void * perfect (struct compent *client) {
+
+}
+/* ----------------- old code ------------------------- */
     while (1) {
         if (terminating) {
             // broadcast the ending signal

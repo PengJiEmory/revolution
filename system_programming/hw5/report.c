@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
     }
 
     xdr_char(&handle_r, &rcvinit);
-    if (rcvinit == 'o') {
+    if (rcvinit == 'O') {
         printf("no compute has been registed yet\n");
         exit(0);
     }
