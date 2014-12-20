@@ -2,7 +2,7 @@
 // A TUTOR OR CODE WRITTEN BY OTHER STUDENTS - PENG JI
 
 /* CS551 Assignment 5 */
-/* compute.c          */
+/* compute_thread.c          */
 /* Peng Ji            */
 
 #include "perfect.h"
@@ -18,7 +18,7 @@ int main (int argc, char *argv[]) {
         exit(1);
     }
 
-    int skfd, newfd;;
+    int skfd, newfd, temp;
     //int pid;
     int process_begin;
     long perf, i;
@@ -31,6 +31,8 @@ int main (int argc, char *argv[]) {
     char perf_found = 'p';  // tell the manage perfect number is found
     char tested = 't';  // tell the manage one more number has been tested
     char stat = 'N';
+    char quit = 'q';
+    char space = 's';
     time_t time_start, time_end;
     sigset_t mask;
     FILE * stream;
@@ -65,6 +67,7 @@ int main (int argc, char *argv[]) {
 
     printf("connecting to server...\n");
     while(1) {
+        if (terminating) break;
         // creat the socket
         if ((skfd =socket(AF_INET, SOCK_STREAM, 0)) < 0) {
             perror("Socket");
@@ -112,29 +115,34 @@ int main (int argc, char *argv[]) {
             xdr_long(&handle_r, &start);
             xdr_long(&handle_r, &end);
             printf("start at %ld, and end will be %ld\n", start, end);
-            time_start = time(0);
-            for (i = start; terminating == 0 && i <= end; i++) {
-                if (isperf(i)) {
-                    // send perfect number
-                    xdr_char(&handle_w, &perf_found);
-                    xdr_long(&handle_w, &i);
-                    printf("%d\n", i);
-                }
-                last = i;
-                xdr_char(&handle_w, &tested);
-                fflush(stream);
-                xdr_int(&handle_r, &terminating);
+        }
+        time_start = clock();
+        for (i = start; terminating == 0 && i <= end; i++) {
+            if (isperf(i)) {
+                // send perfect number
+                xdr_char(&handle_w, &perf_found);
+                xdr_long(&handle_w, &i);
+                printf("%d\n", i);
             }
-            time_end = time(0);
-            timecost = (double) (time_end - time_start);
-            if (terminating) stat = 'Y';
-            xdr_char(&handle_w, &reportlast);
-            xdr_long(&handle_w, &last);
-            xdr_char(&handle_w, &stat);
-            xdr_double(&handle_w, &timecost);
+            last = i;
+            xdr_char(&handle_w, &tested);
+            xdr_char(&handle_w, &space);
             fflush(stream);
-            printf("Data has been updated in server.\n");
-            if (terminating) break;
+            if (terminating == 0) xdr_int(&handle_r, &terminating);
+            else xdr_int(&handle_r, &temp);
+        }
+        time_end = clock();
+        timecost = (double)(time_end - time_start) / CLOCKS_PER_SEC;
+        if (terminating) stat = 'Y';
+        xdr_char(&handle_w, &reportlast);
+        xdr_long(&handle_w, &last);
+        xdr_char(&handle_w, &stat);
+        xdr_double(&handle_w, &timecost);
+        fflush(stream);
+        printf("Data has been updated in server.\n");
+        if (terminating) {
+            //xdr_char(&handle_r, &quit);
+            break;
         }
     }
     printf("bye\n");

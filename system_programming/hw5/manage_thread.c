@@ -150,6 +150,7 @@ int main (int argc, char *argv[]) {
         if (rcvinit == 'c') {
             xdr_long(&handle_r, &start_req);
             printf("registering new client...\n");
+            complist[comp_total] = (struct compent *) malloc (sizeof(struct compent));
             complist[comp_total]->id = comp_total;
             complist[comp_total]->socketfd = newskfd;
             complist[comp_total]->hostname = hostentp->h_name;
@@ -160,7 +161,7 @@ int main (int argc, char *argv[]) {
             complist[comp_total]->last = 0;
             complist[comp_total]->stat = 'N';
             pthread_create(&tid, &tattr, compute, (struct compent *)complist[comp_total]);
-            printf("thread %d is created for compute %d\n", tid, comp_total);
+            printf("thread is created for compute %d\n", comp_total + 1);
             pthread_mutex_lock(&mtx);
             comp_total++;
             pthread_mutex_unlock(&mtx);
@@ -253,12 +254,14 @@ void report (int num) {
 }
 
 void * compute (struct compent *client) {
+    printf("thread for compute %d is working\n", client->id + 1);
     int term_sent = 0;
     long span = INITRANGE;
     long newperf;
     double timecost;
     char range = 'r';  // init signal to compute
     char terminate = 'e';  // init signal to compute
+    char quit = 'q';
     char rcvinit;
     XDR handle_w, handle_r;
     FILE * stream;
@@ -285,6 +288,7 @@ void * compute (struct compent *client) {
             nextrange = newrange(client->start_req, span);
             client->start = nextrange->start;
             client->end = nextrange->end;
+            printf("compute %d gets new range %ld - %ld\n", client->id + 1, client->start, client->end);
             xdr_char(&handle_w, &range);
             xdr_long(&handle_w, &(client->start));
             xdr_long(&handle_w, &(client->end));
@@ -295,7 +299,12 @@ void * compute (struct compent *client) {
                 xdr_char(&handle_w, &terminate);
                 fflush(stream);
             }
-            xdr_char(&handle_r, &rcvinit);
+
+            bool_t ans;
+            if ((ans = xdr_char(&handle_r, &rcvinit)) != 1) {
+                perror("line303,xdr_char\n");
+                exit(1);
+                }
             if (rcvinit == 'p') {
                 xdr_long(&handle_r, &newperf);
                 // put perf in to perf linked list
@@ -314,8 +323,10 @@ void * compute (struct compent *client) {
             }
             else if (rcvinit == 'n') break;
             else if (rcvinit == 't') {
+                xdr_char(&handle_r, &rcvinit);
                 client->tested++;
                 xdr_int(&handle_w, &terminating);
+                if (terminating) term_sent = 1;
             }
             else printf("wrong signal from compute %d\n", client->id + 1);
         }
@@ -324,12 +335,14 @@ void * compute (struct compent *client) {
         xdr_double(&handle_r, &timecost);
 
         if (client->stat == 'Y') {
+            //xdr_char(&handle_w, &quit);
+            fflush(stream);
             pthread_mutex_lock(&mtx);
             rangeupdate(client->end, client->last);
             comp_active--;
             pthread_cond_signal(&cond);
             pthread_mutex_unlock(&mtx);
-            printf("compute %d is exited\n", client->id);
+            printf("compute %d is exited\n", client->id + 1);
             pthread_exit(NULL);
         }
     }
