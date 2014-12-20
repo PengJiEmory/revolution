@@ -25,6 +25,7 @@ int main (int argc, char *argv[]) {
     long address, start_asked;
     long start, end;
     double timecost;
+    char rcvinit;
     char iamcomp = 'c';
     char reportlast = 'n';
     char perf_found = 'p';  // tell the manage perfect number is found
@@ -36,6 +37,9 @@ int main (int argc, char *argv[]) {
     XDR handle_r;
     struct sigaction action;
     struct sockaddr_in sin;
+
+    void terminate();
+    int isperf();
 
     // install signal handler for INTR, QUIT and HANGUP
     sigprocmask(SIG_UNBLOCK, &mask, NULL);
