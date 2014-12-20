@@ -150,7 +150,7 @@ int main (int argc, char *argv[]) {
         }
         stream = fdopen(newskfd, "r");
         hostentp = gethostbyaddr((char *)&sin.sin_addr.s_addr, sizeof(sin.sin_addr.s_addr), AF_INET);
-        XDR handle_w, handle_r
+        XDR handle_w, handle_r;
         xdrstdio_create(&handle_w, stream, XDR_ENCODE);
         xdrstdio_create(&handle_r, stream, XDR_DECODE);
         char rcvinit;
@@ -159,7 +159,7 @@ int main (int argc, char *argv[]) {
             xdr_long(&handle_r, &start_req);
             printf("registering new client...\n");
             complist[comp_total]->id = comp_total;
-            complist[comp_total]->sockedfd = newskfd;
+            complist[comp_total]->socketfd = newskfd;
             complist[comp_total]->hostname = hostentp->h_name;
             complist[comp_total]->tested = 0;
             complist[comp_total]->start_req = start_req;
