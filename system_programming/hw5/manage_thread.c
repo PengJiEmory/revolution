@@ -167,12 +167,10 @@ int main (int argc, char *argv[]) {
             report(newskfd);
         }
         else if (rcvinit == 't') {
-            else {
-                report_k = newskfd;
-                terminate();
-                report(newskfd);
-                exit(0);
-            }
+            report_k = newskfd;
+            terminate();
+            report(newskfd);
+            exit(0);
         }
     }
     return 0;
