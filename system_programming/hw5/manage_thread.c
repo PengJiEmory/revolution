@@ -258,7 +258,7 @@ void * compute (struct compent *client) {
     long newperf;
     double timecost;
     char range = 'r';  // init signal to compute
-    char terminate = 't';  // init signal to compute
+    char terminate = 'e';  // init signal to compute
     char rcvinit;
     XDR handle_w, handle_r;
     FILE * stream;
@@ -288,10 +288,12 @@ void * compute (struct compent *client) {
             xdr_char(&handle_w, &range);
             xdr_long(&handle_w, &(client->start));
             xdr_long(&handle_w, &(client->end));
+            fflush(stream);
         }
         while (1) {
             if (terminating && term_sent == 0) {
                 xdr_char(&handle_w, &terminate);
+                fflush(stream);
             }
             xdr_char(&handle_r, &rcvinit);
             if (rcvinit == 'p') {
@@ -311,7 +313,10 @@ void * compute (struct compent *client) {
                 }
             }
             else if (rcvinit == 'n') break;
-            else if (rcvinit == 't') client->tested++;
+            else if (rcvinit == 't') {
+                client->tested++;
+                xdr_int(&handle_w, &terminating);
+            }
             else printf("wrong signal from compute %d\n", client->id + 1);
         }
         xdr_long(&handle_r, &(client->last));

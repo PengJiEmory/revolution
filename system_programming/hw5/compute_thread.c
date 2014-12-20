@@ -7,15 +7,10 @@
 
 #include "perfect.h"
 
-long testing;  //last tested
+long last;  //last tested
 XDR handle_w;
 int myid = 0;  //id registered in manage
 int terminating = 0;
-
-void terminate() {
-    printf("terminate signal received. Terminating...\n");
-    terminating = 1;
-}
 
 int main (int argc, char *argv[]) {
     if (argc != 4 || atoi(argv[3]) <= 0) {
@@ -30,9 +25,11 @@ int main (int argc, char *argv[]) {
     long address, start_asked;
     long start, end;
     double timecost;
-    char sndinit, rcvinit,
+    char iamcomp = 'c';
+    char reportlast = 'n';
     char perf_found = 'p';  // tell the manage perfect number is found
     char tested = 't';  // tell the manage one more number has been tested
+    char stat = 'N';
     time_t time_start, time_end;
     sigset_t mask;
     FILE * stream;
@@ -87,58 +84,61 @@ int main (int argc, char *argv[]) {
     xdrstdio_create(&handle_w, stream, XDR_ENCODE);
     xdrstdio_create(&handle_r, stream, XDR_DECODE);
 
-    sndinit = 'c';  // tell the manage this is compute
 
     start_asked = atol(argv[3]);
     timecost = 0;  // timecost which is expected as 15sec
-    testing = 0;  // current testing number
+    last = 0;  // current last number
 
     process_begin = 0;
 
-    xdr_char(&handle_w, &sndinit);
+    printf("registering...\n");
+    xdr_char(&handle_w, &iamcomp);
     xdr_long(&handle_w, &start_asked);
+    fflush(stream);
+
+    // send the request
+//    xdr_char(&handle_w, &iamcomp);
+//    xdr_double(&handle_w, &timecost);
 
     while(1) {
-        // send the request
-        printf("updating\n");
-        xdr_char(&handle_w, &sndinit);
-        xdr_double(&handle_w, &timecost);
-        fflush(stream);
         // wait for response from manage
         xdr_char(&handle_r, &rcvinit);
-        if (rcvinit == 't') terminate();
-        else if (rcvinit == 'n') {
+        if (rcvinit == 'e') terminate();
+        else if (rcvinit == 'r') {
             xdr_long(&handle_r, &start);
-            xdr_int(&handle_r, &myid);
             xdr_long(&handle_r, &end);
-        }
-        sleep(1);
-        printf("start as %ld, and end will be %ld\n", start, end);
-        time_start = time(0);
-        for (i = start; terminating == 0 && i <= end; i++) {
-            if (isperf(i)) {
-                // send perfect number
-                xdr_char(&handle_w, &perf_found);
-                xdr_long(&handle_w, &i);
-                printf("%d\n", i);
+            printf("start at %ld, and end will be %ld\n", start, end);
+            time_start = time(0);
+            for (i = start; terminating == 0 && i <= end; i++) {
+                if (isperf(i)) {
+                    // send perfect number
+                    xdr_char(&handle_w, &perf_found);
+                    xdr_long(&handle_w, &i);
+                    printf("%d\n", i);
+                }
+                last = i;
+                xdr_char(&handle_w, &tested);
+                fflush(stream);
+                xdr_int(&handle_r, &terminating);
             }
-            testing = i;
-            xdr_char(&handle_w, &tested);
-            fflush(stream);
-        }
-        if (terminating) {
-            char end = 'e';
-            xdr_char(&handle_w, &end);
-            xdr_int(&handle_w, &myid);
-            xdr_long(&handle_w, &testing);
+            time_end = time(0);
+            timecost = (double) (time_end - time_start);
+            if (terminating) stat = 'Y';
+            xdr_char(&handle_w, &reportlast);
+            xdr_long(&handle_w, &last);
+            xdr_char(&handle_w, &stat);
+            xdr_double(&handle_w, &timecost);
             fflush(stream);
             printf("Data has been updated in server.\n");
-            break;
+            if (terminating) break;
         }
-        time_end = time(0);
-        timecost = (double) (time_end - time_start);
     }
     printf("bye\n");
+}
+
+void terminate() {
+    printf("terminate signal received. Terminating...\n");
+    terminating = 1;
 }
 
 int isperf(long num) {
