@@ -215,7 +215,7 @@ void report (int num) {
         perf_end = 'P';
         perf_curr = perf_head;
         while (perf_curr != NULL) {
-            dr_char(&handle_w, &perf_end);
+            xdr_char(&handle_w, &perf_end);
             xdr_long(&handle_w, &(perf_curr->value));
             xdr_string(&handle_w, &(complist[perf_curr->comid]->hostname), SIZELIMIT);
             fflush(stream);
