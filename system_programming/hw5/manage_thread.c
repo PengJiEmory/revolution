@@ -14,7 +14,9 @@
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
+int comp_active = 0;
 int terminating = 0;
+int report_k = 0;
 
 struct perfent {
     long value;
@@ -30,6 +32,7 @@ struct compent {
    // char hostname[256];
     char * hostname;
     long tested;
+    long start_req;
     long start;
     long end;
     long last;
@@ -51,6 +54,12 @@ void terminate() {
     // send terminate signal out
     terminating = 1;
     printf("terminating ...\n");
+    pthread_mutex_lock(&mtx);
+    while (comp_active > 0) {
+        pthread_cond_wait(&cond, &mtx);
+    }
+    pthread_mutex_unlock(&mtx);
+    if (report_k == 0) exit(0);
 }
 
 int main (int argc, char *argv[]) {
@@ -64,8 +73,6 @@ int main (int argc, char *argv[]) {
     int len, i;
     int compid;
     int comp_total = 0;
-    int comp_active = 0;
-    int waiting_terminate = 0;  // waiting report
     int disconnect = 0;
     long newperf;
     long start_req, last, newrange, oldrange;
@@ -82,7 +89,6 @@ int main (int argc, char *argv[]) {
     struct sockaddr_in tempsin;
     struct hostent * hostentp;
     struct pollfd *ufds = (struct pollfd *) calloc(CLTCOUNT, sizeof(struct pollfd));
-
 
     // install signal handler for INTR, QUIT and HANGUP
     sigprocmask(SIG_UNBLOCK, &mask, NULL);
@@ -116,11 +122,6 @@ int main (int argc, char *argv[]) {
         exit(1);
     }
 
-    // add the socket fd to ufds
-    nfds = 1;  //socket fd need to listen
-    ufds[0].fd = skfd;
-    ufds[0].events = POLLIN | POLLHUP | POLLRDNORM;
-
     // setsockopt to avoid unavailable socket
     int yes = 1;
     if (setsockopt(skfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
@@ -137,14 +138,17 @@ int main (int argc, char *argv[]) {
     listen(skfd, CLTCOUNT);
 
     // Now loop accepting connections
-    //
     while (1) {
+        if (terminating) {
+            printf("Sorry, no more connections is allowed, for we are terminating\n");
+            continue;
+        }
         int newskfd;
         if ((newskfd = accept(skfd, (struct sockaddr *) &sin, &len)) < 0) {
             perror("accept");
             exit(1);
         }
-        stream = fdopen(newskfd, "r+");
+        stream = fdopen(newskfd, "r");
         hostentp = gethostbyaddr((char *)&sin.sin_addr.s_addr, sizeof(sin.sin_addr.s_addr), AF_INET);
         XDR handle_w, handle_r
         xdrstdio_create(&handle_w, stream, XDR_ENCODE);
@@ -152,20 +156,34 @@ int main (int argc, char *argv[]) {
         char rcvinit;
         xdr_char(&handle_r, &rcvinit);
         if (rcvinit == 'c') {
+            xdr_long(&handle_r, &start_req);
+            printf("registering new client...\n");
             complist[comp_total]->id = comp_total;
             complist[comp_total]->sockedfd = newskfd;
             complist[comp_total]->hostname = hostentp->h_name;
             complist[comp_total]->tested = 0;
+            complist[comp_total]->start_req = start_req;
             complist[comp_total]->start = 0;
             complist[comp_total]->end = 0;
             complist[comp_total]->last = 0;
             complist[comp_total]->stat = 'N';
-            pthread_create(&tid, &tattr, perfect, struct compent complist[comp_total]);
+            pthread_create(&tid, &tattr, compute, struct compent complist[comp_total]);
+            printf("thread %d is created for compute %d\n", tid, comp_total);
             comp_total++;
-            comp_active++;
         }
         else if (rcvinit == 'r') {
             report(newskfd);
+        }
+        else if (rcvinit == 't') {
+            else {
+                report_k = newskfd;
+                terminate();
+                report(newskfd);
+                exit(0);
+            }
+        }
+    }
+}
 
 void report (int num) {
     int skfd = num;
@@ -226,9 +244,148 @@ void report (int num) {
         fflush(stream);
     }
 }
-// talk with compute
-void * perfect (struct compent *client) {
 
+void * compute (struct compent *client) {
+    int term_sent = 0;
+    long span = INITRANGE;
+    double timecost;
+    char range = 'r';  // init signal to compute
+    char terminate = 't';  // init signal to compute
+    char rcvinit;
+    XDR handle_w, handle_r;
+    struct range * nextrange;
+
+    pthread_mutex_lock(&mtx);
+    comp_active++;
+    pthread_mutex_unlock(&mtx);
+
+    stream = fdopen(client->socketfd, "r+");
+    xdrstdio_create(&handle_w, stream, XDR_ENCODE);
+    xdrstdio_create(&handle_r, stream, XDR_DECODE);
+
+    while (1) {
+        if (terminating) {
+            xdr_char(&handle_w, &terminate);
+            term_sent = 1;
+        }
+        else {
+            if (client->last != 0) span = (client->last - client->start) * 15 / timecost;
+            nextrange = newrange(client->start_req, span);
+            client->start = nextrange->start;
+            client->end = nextrange->end;
+            xdr_char(&handle_w, &range);
+            xdr_long(&handle_w, &(client->start));
+            xdr_long(&handle_w, &(client->end));
+        }
+        while (1) {
+            if (terminating && term_sent == 0) {
+                xdr_char(&handle_w, &terminate);
+            }
+            xdr_char(&handle_r, &rcvinit);
+            if (rcvinit == 'p') {
+                xdr_long(&handle_r, &newperf);
+                // put perf in to perf linked list
+                struct perfent * perf_temp = (struct perfent *) malloc (sizeof (struct perfent));
+                perf_temp->value = newperf;
+                perf_temp->comid = client->id;
+                perf_temp->next = NULL;
+                if (perf_head == NULL) perf_head = perf_temp;
+                else {
+                    struct perfent * perf_curr = perf_head;
+                    while (perf_curr->next != NULL) {
+                        perf_curr = perf_curr->next;
+                    }
+                    perf_curr->next = perf_temp;
+                }
+            }
+            else if (rcvinit == 'n') break;
+            else if (rcvinit == 't') client->tested++;
+            else printf("wrong signal from compute %d\n", client->id + 1);
+        }
+        xdr_long(&handle_r, &(client->last));
+        xdr_char(&handle_r, &(client->stat)); //'Y' or 'N'
+        xdr_double(&handle_r, &timecost);
+
+        if (client->stat == 'Y') {
+            pthread_mutex_lock(&mtx);
+            rangeupdate(client->end, client->last);
+            comp_active--;
+            pthread_cond_signal(&cond);
+            pthread_mutex_unlock(&mtx);
+            printf("compute %d is exited\n", client->id);
+            pthread_exit();
+        }
+    }
+}
+
+void rangeupdate(long end, long last) {
+    if (end != last) {
+        struct range * range_curr = range_head;
+        while (range_curr != NULL) {
+            if (range_curr->end == end) {
+                range_curr->end = last;
+                break;
+            }
+            else range_curr = range_curr->next;
+        }
+    }
+}
+
+struct range * newrange(long start_req, long span) {
+    struct range * range_temp = (struct range *) malloc (sizeof(struct range));
+    if (range_head == NULL) {
+        range_temp->start = start_req;
+        range_temp->end = start_req + span - 1;
+        range_temp->prev = NULL;
+        range_temp->end = NULL;
+        range_head = range_temp;
+    }
+    else {
+        struct range * range_curr = range_head;
+        while (range_curr != NULL) {
+            // after current range's end
+            if (start_req > range_curr->end) {
+                // start_req is larger than the largest tested/testing number
+                if (range_curr->next == NULL) {
+                    range_temp->start = start_req;
+                    range_temp->end = start_req + span - 1;
+                    range_temp->next = NULL;
+                    range_temp->prev = range_curr;
+                    range_curr->next = range_temp;
+                    break;
+                }
+                // start_req located between current end and next start
+                else if (start_req < range_curr->next->start) {
+                    range_temp->start = start_req;
+                    range_temp->end = start_req + span - 1;
+                    if (start_req + span > range_curr->next->start) {
+                        range_temp->end = range_curr->next->start - 1;
+                    }
+                    range_temp->next = NULL;
+                    range_temp->prev = range_curr;
+                    range_curr->next = range_temp;
+                    break;
+                }
+                else range_curr = range_curr->next;  // go to the else block below in next cycle
+            }
+            else {
+                if (start_req < range_head->start) {
+                    range_temp->start = start_req;
+                    range_temp->end = start_req + span - 1;
+                    if (start_req + span > range_head->start) range_temp->end = range_head->start -1;
+                    range_temp->prev = NULL;
+                    range_temp->next = range_head;
+                    range_head = range_temp;
+                    break;
+                }
+                // located in current range
+                else {
+                    start_req = range_curr->end + 1;
+                }
+            }
+        }
+    }
+    return range_temp;
 }
 /* ----------------- old code ------------------------- */
     while (1) {
@@ -253,10 +410,10 @@ void * perfect (struct compent *client) {
             // if all computes have been terminated, return to report and die
             if (comp_active == 0) {
                 // if there is waiting report, report and die; else die;
-                if (waiting_terminate > 0) {
+                if (report_k > 0) {
                     FILE * stream_t;
                     XDR handle_wt;
-                    if ((stream_t = fdopen(waiting_terminate, "r+")) == (FILE *) -1) {
+                    if ((stream_t = fdopen(report_k, "r+")) == (FILE *) -1) {
                         perror("fdopen");
                         exit(1);
                     }
@@ -412,9 +569,9 @@ void * perfect (struct compent *client) {
                         case 't':
                             if (terminating) break;  // no report when terminating
                             terminate();
-                            waiting_terminate = newfd;  // set its socket fd as waiting_terminate
+                            report_k = newfd;  // set its socket fd as report_k
                             break;
-                        case 'c':
+                        case '_f':
                             xdr_int(&handle_r, &compid);
                             xdr_long(&handle_r, &start_req);
                             xdr_double(&handle_r, &timecost);
