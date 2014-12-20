@@ -14,6 +14,7 @@
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
+int comp_total = 0;
 int comp_active = 0;
 int terminating = 0;
 int report_k = 0;
@@ -60,7 +61,6 @@ int main (int argc, char *argv[]) {
     int nfds, rv;
     int len, i;
     int compid;
-    int comp_total = 0;
     int disconnect = 0;
     long newperf;
     long start_req, last, newrange, oldrange;
@@ -161,7 +161,9 @@ int main (int argc, char *argv[]) {
             complist[comp_total]->stat = 'N';
             pthread_create(&tid, &tattr, compute, (struct compent *)complist[comp_total]);
             printf("thread %d is created for compute %d\n", tid, comp_total);
+            pthread_mutex_lock(&mtx);
             comp_total++;
+            pthread_mutex_unlock(&mtx);
         }
         else if (rcvinit == 'r') {
             report(newskfd);
@@ -196,6 +198,7 @@ void report (int num) {
     struct perfent * perf_curr;
     struct range * range_curr;
     XDR handle_w;
+    FILE * stream;
 
     stream = fdopen(skfd, "w");
     xdrstdio_create(&handle_w, stream, XDR_ENCODE);
@@ -251,11 +254,13 @@ void report (int num) {
 void * compute (struct compent *client) {
     int term_sent = 0;
     long span = INITRANGE;
+    long newperf;
     double timecost;
     char range = 'r';  // init signal to compute
     char terminate = 't';  // init signal to compute
     char rcvinit;
     XDR handle_w, handle_r;
+    FILE * stream;
     struct range * nextrange;
 
     struct range * newrange();
@@ -319,7 +324,7 @@ void * compute (struct compent *client) {
             pthread_cond_signal(&cond);
             pthread_mutex_unlock(&mtx);
             printf("compute %d is exited\n", client->id);
-            pthread_exit();
+            pthread_exit(NULL);
         }
     }
 }
