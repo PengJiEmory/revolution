@@ -192,6 +192,7 @@ void terminate() {
 
 void report (int num) {
     int skfd = num;
+    int i;
     char sndinit;
     char perf_end;
     char msg_end;
@@ -348,7 +349,7 @@ struct range * newrange(long start_req, long span) {
         range_temp->start = start_req;
         range_temp->end = start_req + span - 1;
         range_temp->prev = NULL;
-        range_temp->end = NULL;
+        range_temp->next = NULL;
         range_head = range_temp;
     }
     else {
