@@ -159,7 +159,7 @@ int main (int argc, char *argv[]) {
             complist[comp_total]->end = 0;
             complist[comp_total]->last = 0;
             complist[comp_total]->stat = 'N';
-            pthread_create(&tid, &tattr, compute, struct compent complist[comp_total]);
+            pthread_create(&tid, &tattr, compute, (struct compent *)complist[comp_total]);
             printf("thread %d is created for compute %d\n", tid, comp_total);
             comp_total++;
         }
